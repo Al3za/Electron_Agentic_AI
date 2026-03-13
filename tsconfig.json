@@ -1,0 +1,11 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS", // compila i dist files in commonJS, (NodeNext potrebbe creare un file.js non compatibile con il browser di chronium, lanciando errors)
+    "strict": true,
+    "esModuleInterop": true,
+    "outDir": "dist",
+    "rootDir": "src"
+  },
+  "include": ["src", "global.d.ts"] // compila in js i file src e usa anche global.d.ts per i tipi
+}

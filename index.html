@@ -1,0 +1,24 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>AI Agent</title>
+  </head>
+
+  <body>
+    <h2>AI Agent</h2>
+
+    <textarea id="prompt" placeholder="Scrivi la tua richiesta"></textarea>
+
+    <br /><br />
+
+    <button id="sendBtn">Invia now</button>
+
+    <div id="response"></div>
+
+    <script src="./dist/renderer.js"></script>
+    <!-- ./dist/renderer.js e dove gira l'html e js al build(npm run build) o al watch--(npm run dev), perche qui usiamo il browser di Electron
+     e come sappiamo il browser capisce solo js e nonts. quindi ./dist/renderer.js e' il path dove vive
+     html al build -->
+  </body>
+</html>
