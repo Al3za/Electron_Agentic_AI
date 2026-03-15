@@ -11,7 +11,7 @@ declare global {
   interface Window {
     electronAPI: {
       sendInput: (text: string) => void;
-      onResponse: (callback: (output: res_output) => void) => void;
+      onResponse: (callback: (output: string /*res_output*/) => void) => void;
     };
   }
 }

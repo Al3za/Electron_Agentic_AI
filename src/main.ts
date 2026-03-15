@@ -52,9 +52,15 @@ app.whenReady().then(createWindow);
 // IPC listener per ricevere input dal renderer da mandare al 'backend'. Il backend ascolta la comunicazione
 // definita dal name id 'user-input'
 ipcMain.on("user-input", async (event, input: string) => {
-  // qui main.js(il nostro backend) ascoltiamo lo user input mandato da renderer.ts(il nostro frontend), tramite comunicazione IPC by  name id 'user-input'
-  const result = await runAgent(input); // runAgent() e' la function  dove passiamo lo html l'input dello user allo llm, e dove a sua volta questo decide che tool invocare(e se c'e' bisogno di invocarlo) per portare a termine il task descritto dallo user input
-  event.reply("llm-response", result); // llm-response definito in preload.js, e serve a mandare la res dei workers al renderer cosicche' lo user viene comunicato lo stato della task che ha chiesto, e se e' stata completata
+  try {
+    // qui main.js(il nostro backend) ascoltiamo lo user input mandato da renderer.ts(il nostro frontend), tramite comunicazione IPC by  name id 'user-input'
+    const result = await runAgent(input); // runAgent() e' la function  dove passiamo lo html l'input dello user allo llm, e dove a sua volta questo decide che tool invocare(e se c'e' bisogno di invocarlo) per portare a termine il task descritto dallo user input
+    event.reply("llm-response", result); // llm-response definito in preload.js, e serve a mandare la res dei workers al renderer cosicche' lo user viene comunicato lo stato della task che ha chiesto, e se e' stata completata
+  } catch (error) {
+    // così Electron non crasha se succede un error
+    console.error(error);
+    event.reply("llm-response", "Errore nel backend");
+  }
 });
 // COME AVVIARE L' APP IN DEV :     "dev": "concurrently \"tsc --watch\" \"electronmon --watch dist --exec \\\"npx electron .\\\"\"", (dont start the browser)
 

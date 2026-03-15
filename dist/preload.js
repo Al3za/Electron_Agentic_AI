@@ -2,6 +2,10 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 // Creare preload.ts (per comunicazione IPC tra renderer(frontend) e main(backend))
 const electron_1 = require("electron");
+// interface res_output {
+//   success: boolean;
+//   file: string;
+// }
 // Espone solo le funzioni IPC che il renderer può usare
 electron_1.contextBridge.exposeInMainWorld("electronAPI", {
     // il nome che usiamo
