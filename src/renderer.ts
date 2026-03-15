@@ -3,10 +3,10 @@ const input = document.getElementById("prompt") as HTMLInputElement;
 const btn = document.getElementById("sendBtn")!;
 const responseDiv = document.getElementById("response")!;
 
-interface res_output {
-  success: boolean;
-  file: string;
-}
+// interface res_output {
+//   success: boolean;
+//   file: string;
+// }
 
 btn.addEventListener("click", () => {
   console.log("button clicked");
@@ -19,7 +19,7 @@ btn.addEventListener("click", () => {
   responseDiv.innerText = "Sto elaborando....";
 });
 
-window.electronAPI.onResponse((output: res_output) => {
+window.electronAPI.onResponse((output: string /*res_output*/) => {
   console.log("output format=", output);
-  responseDiv.innerText = `file ${output.file.toString()} created`; //output.success.toString(); // Il renderer riceve la risposta dallo llm(che abbiamo comunivcato da main.js) e la mostra:
+  responseDiv.innerText = output /*`file ${output.file.toString()} created`*/; //output.success.toString(); // Il renderer riceve la risposta dallo llm(che abbiamo comunivcato da main.js) e la mostra:
 });
