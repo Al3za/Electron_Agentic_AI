@@ -11,7 +11,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 // sotto c'e' scritto come avviare l'app in dev
 const electron_1 = require("electron");
 const path_1 = __importDefault(require("path")); // per definire i file da importare dal file sistem
-const agent_1 = require("./tools/agent");
+const agent_1 = require("./agent/agent");
 require("dotenv/config");
 function createWindow() {
     console.log("MAIN STARTED");
