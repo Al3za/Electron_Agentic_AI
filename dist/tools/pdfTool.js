@@ -24,5 +24,6 @@ exports.pdfTool = {
     strict: true, // controlla quanto rigidamente il modello deve rispettare lo schema dei parametri.
     // strict: true significa che Il modello deve rispettare esattamente lo schema JSON.
 };
+// PS :
 // required: ["title", "content"], saranno compilati dallo llm, in base all'output delle altre tool invocate in precedenza
 // e queste a sua volta verranno passate come input ad un altro tool, fino a quando la taske non e' completata

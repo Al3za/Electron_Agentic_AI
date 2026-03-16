@@ -9,7 +9,7 @@
 
 import { app, BrowserWindow, ipcMain } from "electron";
 import path from "path"; // per definire i file da importare dal file sistem
-import { runAgent } from "./tools/agent";
+import { runAgent } from "./agent/agent";
 import "dotenv/config";
 
 function createWindow() {

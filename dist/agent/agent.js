@@ -51,17 +51,30 @@ exports.runAgent = runAgent;
 //   // mandiamo questo mess al nextjs frontend tramit ICP
 // }
 const openaiClient_1 = require("../utils/openaiClient");
-const pdfTool_1 = require("./pdfTool");
-const pdfWorker_1 = require("../workers/pdfWorker");
+// import { pdfTool } from "../tools/pdfTool";
+const tools_1 = require("../tools");
+const toolRegistry_1 = require("./toolRegistry");
+// import { generatePDF } from "../workers/pdfWorker";
 async function runAgent(userInput) {
     console.log("Agent started with input:", userInput);
-    const tools = [pdfTool_1.pdfTool]; // usually are they many
-    let messages = [
-        {
-            role: "user",
-            content: userInput,
-        },
-    ];
+    let response = await openaiClient_1.openai.responses.create({
+        model: "gpt-4.1",
+        // input: messages,
+        input: userInput,
+        tools: tools_1.tools,
+    }); // qua' il modello decide se invocare una tool o meno in base all'input ricevuto,
+    // const tools = [pdfTool]; // usually are they many
+    // QUI:
+    // messages: [] e' ancora molto usato dalle agenzie per fare multi-turn task perche
+    // e facile da fare debug ed e' piu' affidabile se abbiamo molti tool nella chain. Pero al momento usiamo
+    // previous_response_id: response.id, che e' il servizio  semplificata di messages, offerto
+    // da OpenAi (leggi sotto la desc in generate_Pdf function)
+    // let messages: any[] = [
+    //   {
+    //     role: "user",
+    //     content: userInput,
+    //   },
+    // ];
     // IN QUESTO WHILE PARTE IL 'MULTI AGENT AI':
     // questo while resta true per tutta la durata del modello che invoca nuove tool, rendendolo ideale per il multi agent
     // quando il modello ha chiamato l'ultima tool della chain e deve dare la res finale, ovvero
@@ -70,13 +83,25 @@ async function runAgent(userInput) {
     // ma solo una res diretta)
     while (true) {
         // ask llm e lui decide se iniziare una serie di tool call e se dare una res senza invocare nessun tools
-        let response = await openaiClient_1.openai.responses.create({
-            model: "gpt-4.1",
-            input: messages,
-            tools: tools,
-        }); // qua' il modello decide se invocare una tool o meno in base all'input ricevuto,
+        // let response = await openai.responses.create({
+        //   model: "gpt-4.1",
+        //   // input: messages,
+        //   input: userInput,
+        //   tools: tools,
+        // }); // qua' il modello decide se invocare una tool o meno in base all'input ricevuto,
         console.log("MODEL OUTPUT:");
         console.log(JSON.stringify(response.output, null, 2));
+        // QUI :
+        // L’OpenAI Responses API (qui toolCall) restituisce sempre un oggetto output che può avere diversi tipi:
+        // console.log("toolCall check =", toolCall);
+        // "text" → semplice risposta testuale
+        // "function_call" → indica che l’LLM vuole invocare un tool (come vediamo sotto)
+        // {
+        //   "type": "function_call", // quando chiama una tool
+        //   "name": "generate_pdf", // nome della tool invocata (definita nella tool list)
+        //   "arguments": "{\"title\":\"My PDF\",\"content\":\"Hello World\"}"
+        //     "text": "qui risiede la resp finale dello llm in text formato (a fine loop quando non ci sono piu' tool da chiamare, oppure se si fanno domande che non richiedono tool invoking)"
+        // }
         const toolCall = response.output.find((item) => item.type === "function_call"); // find the name of the tool invoked by the llm. function_call e la key word di defaut di openAi definita anche nelle tool list
         // QUI:
         // Si ferma il while loop. Il modello da' la risposta finale quando sono state invocate tutte le
@@ -91,24 +116,35 @@ async function runAgent(userInput) {
             return response.output_text; // output_text e inbuild sintaxt di OpenAi che ritorna la res del model
         }
         // QUA:
-        // arriviamo se l' LLM ha deciso di invocare un tool, e vediamo quale tool name deve agire come qua sotto
+        // arriviamo se l' LLM ha deciso di invocare un tool, e vediamo quale tool name deve agire come qua sotto.
+        // Questa pratica e' chiamata Logging agent (molto utile), ed e' Questo è fondamentale quando
+        //  gli agent diventano complessi.
         console.log("Tool called:", toolCall.name);
         console.log("Arguments:", toolCall.arguments);
         const args = JSON.parse(toolCall.arguments);
-        let result;
+        //Qui:
+        // Usiamo il tool Registry dove sono definite tutte le tools.
+        const tool = toolRegistry_1.toolRegistry[toolCall.name]; // puoi aggiungere nuovi tool senza cambiare l’agent loop.
+        if (!tool) {
+            throw new Error(`Tool not found: ${toolCall.name}`);
+        }
+        const result = await tool(args); // passiamo gli args creati dal modello alla tool che il modello decide di invocare
+        // il result verra poi salvato dallo llm alla fine della tool chain come descritto nel blocco sotto:
+        // let result; // il result e diverso per ogni tool invocata, e si dovrebbe fermare nel if (!toolCall || toolCall.type !== "function_call")
+        // Cosicche si possano usare multi task agent.(ancora il loop stranamente non si ferma dopo aver invokato la tool, si deve investigare)
         // QUA
         // Si arriva se' la function tool nale e' generate_pdf, e qua dentro chiamiamo la fun
         // che scrive il .txt file con gli args dello input.
         // P.S. Fare actions facendo il check dell nome della tool invocata dal modello cosi' come sotto
         //  non scala bene se abbiamo molti tools. Per questo il prossimo update sara' il 'Tool registry'
         // in modo da avere anche 100+ tools in modo ordinato e scalabile
-        if (toolCall.name === "generate_pdf") {
-            // Se il tool name e questo, esegui questa tool(crea .txt file). Nello stesso modo possiamo
-            // definire un altra 'if' per azionare un altra tool quando ci saranno piu' tools
-            // const args = JSON.parse(toolCall.arguments);
-            // const result = await generatePDF(args.title, args.content);
-            result = await (0, pdfWorker_1.generatePDF)(args.title, args.content);
-        }
+        // if (toolCall.name === "generate_pdf") {
+        //   // Se il tool name e questo, esegui questa tool(crea .txt file). Nello stesso modo possiamo
+        //   // definire un altra 'if' per azionare un altra tool quando ci saranno piu' tools
+        //   // const args = JSON.parse(toolCall.arguments);
+        //   // const result = await generatePDF(args.title, args.content);
+        //   result = await generatePDF(args.title, args.content);
+        // }
         console.log("Tool result:", result);
         response = await openaiClient_1.openai.responses.create({
             model: "gpt-4.1",
@@ -161,7 +197,7 @@ async function runAgent(userInput) {
         //   output: JSON.stringify(result), // OpenAI rifiuta gli object, quindi trasformiamo l'output
         //   // della res in una stringa JSON per non causare errors
         // });
-        continue;
+        // continue;
     }
 }
 // questo loop fa in modo che in nostro agent si comporta da vero agent in prod.
