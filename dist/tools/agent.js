@@ -79,8 +79,11 @@ async function runAgent(userInput) {
         console.log(JSON.stringify(response.output, null, 2));
         const toolCall = response.output.find((item) => item.type === "function_call"); // find the name of the tool invoked by the llm. function_call e la key word di defaut di openAi definita anche nelle tool list
         // QUI:
-        // Si ferma il loop se l'input dello user non richiede l'uso di una tool call
-        // allora il modello risponde normalmente(tipo se l'utente dice: 'ciao chat, come stai?')
+        // Si ferma il while loop. Il modello da' la risposta finale quando sono state invocate tutte le
+        //  tool dela chain o se l'input dello user non richiede l'uso di una tool call
+        // (tipo se l'utente dice: 'ciao chat, come stai?'). In pratica, se invochiamo 10 tools, al completamento
+        // della 10 tool il modello risponde qui, e questa res viene inviata al renderer.ts per mostrarla
+        //  allo user
         if (!toolCall || toolCall.type !== "function_call") {
             // cosi' ts sa' che e' una openAi function_call
             // e non lancia error sotto nel name(toolCall.name)
@@ -91,68 +94,74 @@ async function runAgent(userInput) {
         // arriviamo se l' LLM ha deciso di invocare un tool, e vediamo quale tool name deve agire come qua sotto
         console.log("Tool called:", toolCall.name);
         console.log("Arguments:", toolCall.arguments);
+        const args = JSON.parse(toolCall.arguments);
+        let result;
         // QUA
         // Si arriva se' la function tool nale e' generate_pdf, e qua dentro chiamiamo la fun
-        // che scrive il .txt file con gli args dello input
+        // che scrive il .txt file con gli args dello input.
+        // P.S. Fare actions facendo il check dell nome della tool invocata dal modello cosi' come sotto
+        //  non scala bene se abbiamo molti tools. Per questo il prossimo update sara' il 'Tool registry'
+        // in modo da avere anche 100+ tools in modo ordinato e scalabile
         if (toolCall.name === "generate_pdf") {
             // Se il tool name e questo, esegui questa tool(crea .txt file). Nello stesso modo possiamo
             // definire un altra 'if' per azionare un altra tool quando ci saranno piu' tools
-            const args = JSON.parse(toolCall.arguments);
-            const result = await (0, pdfWorker_1.generatePDF)(args.title, args.content);
-            console.log("Tool result:", result);
-            response = await openaiClient_1.openai.responses.create({
-                model: "gpt-4.1",
-                previous_response_id: response.id, // continua il reasoning a partire dalla risposta precedente
-                // del modello. In modo da tenere aggiurnato il modello su quale e' il next step in base a quello che
-                // e' accaduto prima, altrimenti al prossimo turn del loop non si sarebbe resettato, non sapendo che
-                // si era invocata la tool prima, e quindi non sarebbe possibile il multi turn agent
-                // Curiosita. Il modello non riceve tutta la chat ogni volta — l’API ricostruisce il
-                //  contesto usando gli ID delle res precedenti del loop:
-                // resp 1 = [resp_abc123XYZ]
-                // resp 2 = [resp_def456LMN]. Quesi sono semplicemente l'identificatore di quella risposta
-                // del modello in modo da evitare di caricare sempre tutto il contesto(cioe' input e metadati
-                // pesanti) e' rendendo questa pratica è molto più efficiente dei classici 'array messages'.
-                // Con previous_response_id il contesto è gestito dal server OpenAI ed e' per questo che
-                // Il modello capisce il contesto dei turn precedenti solo grazie agli id.
-                // Ricordiamo che questo e' necessario  per debugging, multiturn task, ecc..
-                input: [
-                    // Qui dentro passano i dati l'output della tool che abbiamo chiamato sopra. Serve per il multi
-                    // agent loop e per mantenere il context allo llm
-                    {
-                        type: "function_call_output", // function_call_output e la Sintax di openAi. Serve a informare il modello
-                        //  che stiamo questo e' un autput di una toll
-                        call_id: toolCall.call_id, // esattamente di questa tool id (che ci servira' se vogliamo
-                        // usare questo output come input per la next tool call)
-                        output: JSON.stringify(result), // e' qui diciamo allo llm il result della funzione chiamata sopra
-                        //: {success: true, file: "test.pdf"} Questo puo' essere l'input nella next tool call(che si
-                        // ricava con toolCall.call_id), oppure puo' essere la res finale tipo dello llm tipo:
-                        // "il file test.pdf e' stato creato con sucesso"
-                    },
-                ],
-            });
-            return response.output_text; // Qui lo LLM ferma il while loop e ritorna la res per il renderer.ts (lo user)
-            /////
-            // messages.push Serve per creare il loop cognitivo dell’agent. Cioe' serve a fare il
-            // multiturn agent, in modo che l'output di una tool venga servita come input allo llm
-            // per dare una response, o nel caso si dovrebbe  passare questo output come input di un
-            // altra tool. Al momento non serve perche usiamo "previous_response_id: response.id" come riferimento
-            // ma response.id non puoi facilmente:
-            //fare logging completo
-            // fare agent debugging
-            // fare tool chains lunghe
-            // salvare la conversazione
-            // Per questo molti agent in produzione usano ancora:
-            // messages[]
-            // invece di previous_response_id.
-            // In futuro usaremo message [], ma al momento usiamo response.id per facilitare
-            // messages.push({
-            //   type: "function_call_output", // il risultato di un tool deve essere mandato con prefisso di openAi 'function_call_output'
-            //   call_id: toolCall.call_id, // Il call_id serve a OpenAI per sapere che questo risultato appartiene a quel tool call specifico
-            //   output: JSON.stringify(result), // OpenAI rifiuta gli object, quindi trasformiamo l'output
-            //   // della res in una stringa JSON per non causare errors
-            // });
-            // continue;
+            // const args = JSON.parse(toolCall.arguments);
+            // const result = await generatePDF(args.title, args.content);
+            result = await (0, pdfWorker_1.generatePDF)(args.title, args.content);
         }
+        console.log("Tool result:", result);
+        response = await openaiClient_1.openai.responses.create({
+            model: "gpt-4.1",
+            previous_response_id: response.id, // continua il reasoning a partire dalla risposta precedente
+            // del modello. In modo da tenere aggiurnato il modello su quale e' il next step in base a quello che
+            // e' accaduto prima, altrimenti al prossimo turn del loop non si sarebbe resettato, non sapendo che
+            // si era invocata la tool prima, e quindi non sarebbe possibile il multi turn agent
+            // Curiosita. Il modello non riceve tutta la chat ogni volta — l’API ricostruisce il
+            //  contesto usando gli ID delle res precedenti del loop:
+            // resp 1 = [resp_abc123XYZ]
+            // resp 2 = [resp_def456LMN]. Quesi sono semplicemente l'identificatore di quella risposta
+            // del modello in modo da evitare di caricare sempre tutto il contesto(cioe' input e metadati
+            // pesanti) e' rendendo questa pratica è molto più efficiente dei classici 'array messages'.
+            // Con previous_response_id il contesto è gestito dal server OpenAI ed e' per questo che
+            // Il modello capisce il contesto dei turn precedenti solo grazie agli id.
+            // Ricordiamo che questo e' necessario  per debugging, multiturn task, ecc..
+            input: [
+                // Qui dentro passano i dati l'output della tool che abbiamo chiamato sopra. Serve per il multi
+                // agent loop e per mantenere il context allo llm
+                {
+                    type: "function_call_output", // function_call_output e la Sintax di openAi. Serve a informare il modello
+                    //  che stiamo questo e' un autput di una toll
+                    call_id: toolCall.call_id, // esattamente di questa tool id (che ci servira' se vogliamo
+                    // usare questo output come input per la next tool call)
+                    output: JSON.stringify(result), // e' qui diciamo allo llm il result della funzione chiamata sopra
+                    //: {success: true, file: "test.pdf"} Questo puo' essere l'input nella next tool call(che si
+                    // ricava con toolCall.call_id), oppure puo' essere la res finale tipo dello llm tipo:
+                    // "il file test.pdf e' stato creato con sucesso"
+                },
+            ],
+        });
+        // return response.output_text; // Qui lo LLM ferma il while loop e ritorna la res per il renderer.ts (lo user)
+        /////
+        // messages.push Serve per creare il loop cognitivo dell’agent. Cioe' serve a fare il
+        // multiturn agent, in modo che l'output di una tool venga servita come input allo llm
+        // per dare una response, o nel caso si dovrebbe  passare questo output come input di un
+        // altra tool. Al momento non serve perche usiamo "previous_response_id: response.id" come riferimento
+        // ma response.id non puoi facilmente:
+        //fare logging completo
+        // fare agent debugging
+        // fare tool chains lunghe
+        // salvare la conversazione
+        // Per questo molti agent in produzione usano ancora:
+        // messages[]
+        // invece di previous_response_id.
+        // In futuro usaremo message [], ma al momento usiamo response.id per facilitare
+        // messages.push({
+        //   type: "function_call_output", // il risultato di un tool deve essere mandato con prefisso di openAi 'function_call_output'
+        //   call_id: toolCall.call_id, // Il call_id serve a OpenAI per sapere che questo risultato appartiene a quel tool call specifico
+        //   output: JSON.stringify(result), // OpenAI rifiuta gli object, quindi trasformiamo l'output
+        //   // della res in una stringa JSON per non causare errors
+        // });
+        continue;
     }
 }
 // questo loop fa in modo che in nostro agent si comporta da vero agent in prod.
