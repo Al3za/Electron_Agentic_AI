@@ -52,6 +52,7 @@
 //   // mandiamo questo mess al nextjs frontend tramit ICP
 // }
 
+import dns from "dns/promises"; // per fare fetch ad internet
 import { openai } from "../utils/openaiClient";
 // import { pdfTool } from "../tools/pdfTool";
 import { tools } from "../tools";
@@ -61,10 +62,85 @@ import { toolRegistry } from "./toolRegistry";
 export async function runAgent(userInput: string) {
   console.log("Agent started with input:", userInput);
 
+  async function hasInternet() {
+    try {
+      await dns.lookup("api.openai.com");
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  const hasNet = await hasInternet();
+
+  if (!hasNet) {
+    console.log("No internet → stopping agent");
+    return "⚠️ No internet connection. Please enable WiFi.";
+  }
+
+  // console.log("No internet → trying to fix");
+
+  // await toolRegistry["enable_wifi"]({});
+
+  // // opzionale: connettersi a una rete (worker da creare)
+  // // await toolRegistry["connect_wifi"]({ ssid: "..." });
+
+  // // retry
+  // const retry = await hasInternet();
+
+  // if (!retry) {
+  //   throw new Error("No internet connection");
+  // }
+  // }
+
+  // await ensureInternet();
+
+  // const checkWifiFun = async () => {
+  //   const wifi = await toolRegistry["check_wifi"]({});
+  //   console.log("function wifii check hit", wifi);
+  //   if (!wifi.wifiEnabled) {
+  //     // controlla solo se la scheda è attiva(se e' spuntato la casella wifii), NON se internet funziona.
+  //     await toolRegistry["enable_wifi"]({}); // enables enabledg
+  //   }
+  // };
+  // await checkWifiFun(); // ask to the user to turn on wifi in case it is down, before the agent loop starts
+  // thats because without wifi, the LLM model give a connection error and the agent ai wont even start
+
   let response = await openai.responses.create({
     model: "gpt-4.1",
-    // input: messages,
-    input: userInput,
+    input: [
+      // Ora stiamo passando due messaggi diversi al modello, con ruoli diversi.
+      // Il modello li interpreta con priorità diverse.
+      {
+        role: "developer", // Quando definiamo 'developer/(same as 'system')', equivale è un messaggio di istruzioni per il comportamento dell'agente.
+        // Serve a dire al modello: queste sono le regole che devi seguire quando ragioni (Prima di creare file controlla wifi usando i tool)
+        // senza questo il modello potrebbe creare cercare di fare operazioni su internet senza avere il wifii attivato,
+        // facendo un loop infinito
+        // il content poi non bisognera' ricrearlo sotto quando rifacciamo 'openai.responses.create..' perche e' compreso
+        // in 'previous_response_id: response.id'.(Se non usi response.id devi ricostruire la chat manualmente e reinserire il 'developer' content dinuovo)
+        content: `
+        You are a local desktop AI agent.
+
+        Capabilities:
+        - create pdf files
+        - check wifi status
+        - read files
+        - write files
+
+        Rules:
+        1. ALWAYS check wifi before downloading resources
+        2. Use tools instead of guessing
+        3. Never invent tool outputs
+        4. If a tool fails explain the error to the user
+        5. If a task requires system interaction you must use the available tools.
+           Do not simulate actions.
+        `,
+      },
+      {
+        role: "user", // Questo invece è semplicemente il prompt reale dell'utente, definito da 'user' e userInput
+        content: userInput,
+      },
+    ],
     tools: tools,
   }); // qua' il modello decide se invocare una tool o meno in base all'input ricevuto,
 
@@ -136,6 +212,23 @@ export async function runAgent(userInput: string) {
     console.log("Arguments:", toolCall.arguments);
 
     const args = JSON.parse(toolCall.arguments);
+
+    // QUI:
+    // Qui facciamo un tool enforcement lato backend.
+    // Anche se scriviamo chiaramente nel prompt che prima di scrivere un .txt file si deve controllare lo
+    // status del wifii, a volte il modello salta questo passagio, anche se e' scritto chiaramente nel prompt
+    // Cosi' facciamo un 'orchestrazione lato backend' in modo da assicuriamo che se il modello invoca
+    // delle funzioni critiche, ci assicuriamo che il delle altre tool correlate(il wifii in questo caso) sia
+    // controllato e 'acceso', sopratutto quando invokiamo tool che richiedono connessione wifii. Questa
+    // e' una soluzione solida usata da molte aziende
+    if (toolCall.name === "generate_pdf") {
+      const wifi = await toolRegistry["check_wifi"]({});
+      console.log("function wifii check hit", wifi);
+      if (!wifi.wifiEnabled) {
+        // Accende l’adapter WiFi ma non ci connette realmente ad una rete. serve un nuovo worker per collegarsi a una rete
+        await toolRegistry["enable_wifi"]({}); // enables enabled
+      }
+    }
 
     //Qui:
     // Usiamo il tool Registry dove sono definite tutte le tools.

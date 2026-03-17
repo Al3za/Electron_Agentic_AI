@@ -4,6 +4,7 @@
 // argomenti compilare. Qui diamo ulteriori direttive allo llm
 
 import { FunctionTool } from "openai/resources/responses/responses";
+
 export const pdfTool: FunctionTool = {
   type: "function",
   name: "generate_pdf",
