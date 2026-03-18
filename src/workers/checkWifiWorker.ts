@@ -14,7 +14,7 @@ export function checkWifi(): Promise<any> {
       const wifiEnabled =
         stdout.includes("Wi-Fi") && stdout.includes("Enabled");
 
-      console.log("wifii function wifiEnabled", wifiEnabled);
+      console.log("wifii function wifiEnabled", wifiEnabled); // wifiEnabled = true or false
 
       // resolve funge da return
       resolve({
@@ -24,3 +24,11 @@ export function checkWifi(): Promise<any> {
     });
   });
 }
+//  output di res:
+//   wifiEnabled: true,
+//   raw: '\r\n' +
+//     'Admin State    State          Type             Interface Name\r\n' +
+//     '-------------------------------------------------------------------------\r\n' +
+//     'Enabled        Connected      Dedicated        Wi-Fi\r\n' +
+//     '\r\n'
+// }
