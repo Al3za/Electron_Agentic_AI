@@ -1,22 +1,40 @@
 import { openai } from "../utils/openaiClient";
 // import { pdfTool } from "../tools/pdfTool";
 import { tools } from "../tools";
-// import { toolRegistry } from "./toolRegistry";
+import { toolRegistry } from "./toolRegistry";
 import { guardToolExecution } from "../agent_guard_layer/guard_layer";
 import { executeTool } from "../agent_guard_layer/Tool_Executor";
 import { hasInternet } from "../agent_guard_layer/has_internet";
+import { EnvironmentManager } from "../Env_Manager_Class/EnvironmentManager";
 // import { generatePDF } from "../workers/pdfWorker";
 
 export async function runAgent(userInput: string) {
   console.log("Agent started with input:", userInput);
 
-  // 🟡 PRE-FLIGHT CHECK.(serve per openAi e ha non dare error. )
-  const hasNet = await hasInternet();
+  // 🟡 PRE-FLIGHT CHECK.(serve per openAi e ha non dare error in caso non ci fosse wifi)
+  const env = new EnvironmentManager(toolRegistry); // class call with all the function check inside it. toolRegistry is used to call the
+  // tool "check_wifi" in EnvironmentManager
 
-  if (!hasNet) {
-    // lo user vede questo error se non c'e' wify
+  const state = await env.getState(); // check se il wifi e attivo prima di connettersi a openAi qui sotto
+
+  console.log("ENV STATE:", state);
+  // ENV STATE: {
+  //    internet: true, false if wifi is off
+  //    wifiEnabled: true, false if wifi is off
+  //    wifiConnected: false,
+  //    lastUpdated: 1773838313329
+  //  }
+
+  if (!state.internet) {
     return "⚠️ No internet connection. Please enable WiFi.";
-  }
+  } // return che viene mostrato allo user
+
+  // const hasNet = await hasInternet();
+
+  // if (!hasNet) {
+  //   // lo user vede questo error se non c'e' wify
+  //   return "⚠️ No internet connection. Please enable WiFi.";
+  // }
 
   let response = await openai.responses.create({
     model: "gpt-4.1",
@@ -86,7 +104,9 @@ export async function runAgent(userInput: string) {
     // }); // qua' il modello decide se invocare una tool o meno in base all'input ricevuto,
 
     console.log("MODEL OUTPUT:");
-    console.log(JSON.stringify(response.output, null, 2));
+    console.log(JSON.stringify(response.output, null, 2)); // la res del modello all'input passato sopra a inizio funzione
+    // in questo log vediamo se il modello ha' invocato una tool ("type": "function_call"), o se
+    // ha risposto direttamente senza invocare tool: ("type": "message")
 
     // QUI :
     // L’OpenAI Responses API (qui toolCall) restituisce sempre un oggetto output che può avere diversi tipi:
@@ -94,7 +114,7 @@ export async function runAgent(userInput: string) {
     // "text" → semplice risposta testuale
     // "function_call" → indica che l’LLM vuole invocare un tool (come vediamo sotto)
     // {
-    //   "type": "function_call", // quando chiama una tool
+    //   "type": "function_call", // quando chiama una tool, "message" // quando llm risponde senza inocare tool
     //   "name": "generate_pdf", // nome della tool invocata (definita nella tool list)
     //   "arguments": "{\"title\":\"My PDF\",\"content\":\"Hello World\"}"
     //     "text": "qui risiede la resp finale dello llm in text formato (a fine loop quando non ci sono piu' tool da chiamare, oppure se si fanno domande che non richiedono tool invoking)"
@@ -117,7 +137,9 @@ export async function runAgent(userInput: string) {
     }
 
     // 🛡 GUARD
-    const guardResult = await guardToolExecution(toolCall);
+    const guardResult = await guardToolExecution(toolCall, env); // guardToolExecution fa' parte del Guard Layer e risp alla
+    // domanda: "posso fare questa azione?"
+    // env is our class component e risp alla domanda: "com’è il sistema"?
 
     let result;
 
@@ -125,7 +147,11 @@ export async function runAgent(userInput: string) {
       result = guardResult; // blocco tool (return "No internet connection" or "User denied permission" for now)
     } else {
       try {
-        result = await executeTool(toolCall);
+        result = await executeTool(toolCall); // invochiamo le tool della tool chain
+        // 🔥 importante: aggiorna stato dopo tool critiche
+        if (["enable_wifi", "connect_wifi"].includes(toolCall.name)) {
+          env.invalidateCache();
+        }
       } catch (err) {
         result = {
           success: false,
