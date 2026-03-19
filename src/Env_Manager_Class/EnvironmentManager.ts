@@ -31,15 +31,17 @@ export class EnvironmentManager {
       return this.cache;
     }
 
+    console.log("cache hit first=", this.cache); // null on first run
     // make some cache logs to see if cache is working when you add more tools that require internet, to see that cache 'ttl' works properly
     const fresh = await this.computeState();
     this.cache = fresh;
     return fresh;
   }
 
-  // 🔹 Calcolo reale dello stato
+  // 🔹 Calcolo reale dello stato. (cache funziona bene perche in multiTool loop non viene invocata sempre il
+  // lookup ad internet ma solo ogni 5 sec. Infatti i log qua sotto non compaiono sempre)
   private async computeState(): Promise<EnvState> {
-    console.log("wifi check hit");
+    console.log("computeState wifi check hit ");
     const [internet, wifi] = await Promise.all([
       this.hasInternet(), // check real connection
       this.toolRegistry["check_wifi"]({}), // checks the wifi status
@@ -56,6 +58,7 @@ export class EnvironmentManager {
 
   // 🔹 Check internet
   private async hasInternet(): Promise<boolean> {
+    console.log("lokup on internet here");
     try {
       await dns.lookup("api.openai.com");
       return true;

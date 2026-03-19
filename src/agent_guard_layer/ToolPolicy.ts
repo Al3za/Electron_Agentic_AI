@@ -9,10 +9,12 @@ export const toolPolicies: Record<string, ToolPolicy> = {
   // serve piu' per dare occasione allo user di dare i permessi al modello di procedere ad usare
   // le tool quando queste fanno operazioni OS sensibili.
   generate_pdf: {
+    // must have same name as the tool description to work
     requiresInternet: false,
     requiresPermission: false,
   },
   check_wifi: {
+    // must have same name as the tool description to work
     requiresInternet: false,
     requiresPermission: true,
   },

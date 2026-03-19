@@ -15,6 +15,8 @@ export async function runAgent(userInput: string) {
   const env = new EnvironmentManager(toolRegistry); // class call with all the function check inside it. toolRegistry is used to call the
   // tool "check_wifi" in EnvironmentManager
 
+  // QUI:
+  // computeState() → chiamato solo 1 volta ogni 5s (cache) per evitare di fare ogni volta lookup connessione internet(utile quando si fanno tool chain)
   const state = await env.getState(); // check se il wifi e attivo prima di connettersi a openAi qui sotto
 
   console.log("ENV STATE:", state);
@@ -49,7 +51,7 @@ export async function runAgent(userInput: string) {
         // il content poi non bisognera' ricrearlo sotto quando rifacciamo 'openai.responses.create..' perche e' compreso
         // in 'previous_response_id: response.id'.(Se non usi response.id devi ricostruire la chat manualmente e reinserire il 'developer' content dinuovo)
         content: `
-        You are a local desktop AI agent.
+        You are a strict execution agent AI.
 
         Capabilities:
         - create pdf files
@@ -60,9 +62,11 @@ export async function runAgent(userInput: string) {
         Rules:
         1. ALWAYS check wifi before downloading resources
         2. Use tools instead of guessing
-        3. Never invent tool outputs
-        4. If a tool fails explain the error to the user
-        5. If a task requires system interaction you must use the available tools.
+        3. NEVER invent tool outputs
+        4. NEVER simulate tool execution.
+        5. If a tool is needed, CALL IT.
+        6. If a tool fails explain the error to the user
+        7. If a task requires system interaction you must use the available tools.
            Do not simulate actions.
         `,
       },
@@ -130,6 +134,36 @@ export async function runAgent(userInput: string) {
     // della 10 tool il modello risponde qui, e questa res viene inviata al renderer.ts per mostrarla
     //  allo user
     if (!toolCall || toolCall.type !== "function_call") {
+      // Qui facciamo "Enforce nel loop". Se nell'output_text del modello compare la parola "creo" o "writing"
+      // probabilmente significa che il modello sta' allucinando, cioe' "pianifica a parole" di fare un azione
+      // senza chiamare una tool per eseguirla. Enforcement come guard layer e EnvManager sono tutte tecniche usate in production
+      // dalle grandi aziende
+      if (
+        // Tuttavia il metodo string includes sotto e fragile, ed e' solo per debug (da eliminare in prod)
+        response.output_text?.includes("creo") ||
+        response.output_text?.includes("creare un file") ||
+        response.output_text?.includes("procederò") ||
+        response.output_text?.includes("procedo") ||
+        response.output_text?.includes("scrivere un file") ||
+        response.output_text?.includes("writing")
+      ) {
+        console.log("⚠️ Detected fake execution", response.output_text);
+        // Se questo succede, qui invitiamo il modello a invocare la task
+        response = await openai.responses.create({
+          model: "gpt-4.1",
+          previous_response_id: response.id,
+          input: [
+            {
+              role: "developer",
+              content: `You failed to call a required tool.
+                        You must call a tool to complete the task.
+                        Do not respond with text.`,
+            },
+          ],
+        });
+
+        continue;
+      }
       // cosi' ts sa' che e' una openAi function_call
       // e non lancia error sotto nel name(toolCall.name)
       console.log("Final response:", response.output_text);
@@ -158,7 +192,7 @@ export async function runAgent(userInput: string) {
           error: "Tool execution failed",
         };
       }
-    }
+    } // close else
 
     // QUA:
     // arriviamo se l' LLM ha deciso di invocare un tool, e vediamo quale tool name deve agire come qua sotto.
@@ -240,7 +274,21 @@ export async function runAgent(userInput: string) {
           output: JSON.stringify(result), // e' qui diciamo allo llm il result della funzione chiamata sopra
           //: {success: true, file: "test.pdf"} Questo puo' essere l'input nella next tool call(che si
           // ricava con toolCall.call_id), oppure puo' essere la res finale tipo dello llm tipo:
-          // "il file test.pdf e' stato creato con sucesso"
+          // "il file test.pdf e' stato creato con sucesso".
+          // In pratica da qui il modello può scegliere: chiamare un'altra tool o rispondere in testo
+          // A volte capita che il modello risponde in testo invece di invocare un'altra tool. Questo
+          // e' un problema comune nell agent loop. Per risolvere il problema si deve avere un prompt piu'
+          // strutturato e anche fare enforce lato codice in:
+          // if (!toolCall) {
+          //     console.log("⚠️ Model did not call tool, forcing retry");
+
+          //     response = await openai.responses.create({
+          //       model: "gpt-4.1",
+          //       previous_response_id: response.id,
+          //       input: "You must call the appropriate tool to complete the task.",
+          //     });
+
+          // continue;}
         },
       ],
     });

@@ -18,7 +18,7 @@ export async function guardToolExecution(
   // questo e' importante perche evita':
   // dns.lookup → ogni tool call ❌
   // check_wifi → ogni loop ❌
-
+  console.log("state here", state);
   // Con cache lo stato viene riusato per 5 secondi risultando in performance molto migliori  ✅
 
   // 🌐 check internet if a tool require it (os operation tools usually dont need it)
