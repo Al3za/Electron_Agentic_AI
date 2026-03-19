@@ -68,6 +68,15 @@ export async function runAgent(userInput: string) {
         6. If a tool fails explain the error to the user
         7. If a task requires system interaction you must use the available tools.
            Do not simulate actions.
+        
+        CRITICAL RULE:
+        - You MUST call tools using the function_call format.
+        - NEVER write tool calls as plain text.
+        - NEVER simulate tool execution.
+        - NEVER describe actions instead of executing them.
+        
+        If a tool is required, you MUST call it.
+        If you fail to call a tool, you must try again
         `,
       },
       {
@@ -92,12 +101,18 @@ export async function runAgent(userInput: string) {
   //   },
   // ];
 
+  // QUI:
+  // Evitiamo il Loop-infinito dell'Agente:
+  let retryCount = 0;
+  const MAX_RETRIES = 3;
+
   // IN QUESTO WHILE PARTE IL 'MULTI AGENT AI':
   // questo while resta true per tutta la durata del modello che invoca nuove tool, rendendolo ideale per il multi agent
   // quando il modello ha chiamato l'ultima tool della chain e deve dare la res finale, ovvero
   // laddove vediamo "return response.output_text" qui' si interrompe il while loop, e significa che il
   // modello ha invocato l'ultima tool (o semplicemente che l'inout non richiedeva nessuna tool call
   // ma solo una res diretta)
+
   while (true) {
     // ask llm e lui decide se iniziare una serie di tool call e se dare una res senza invocare nessun tools
     // let response = await openai.responses.create({
@@ -128,44 +143,88 @@ export async function runAgent(userInput: string) {
     ); // find the name of the tool invoked by the llm. function_call e la key word di defaut di openAi definita anche nelle tool list
 
     // QUI:
-    // Si ferma il while loop. Il modello da' la risposta finale quando sono state invocate tutte le
-    //  tool dela chain o se l'input dello user non richiede l'uso di una tool call
-    // (tipo se l'utente dice: 'ciao chat, come stai?'). In pratica, se invochiamo 10 tools, al completamento
-    // della 10 tool il modello risponde qui, e questa res viene inviata al renderer.ts per mostrarla
-    //  allo user
+    // verfichiamo tramite userInput se una tool call e necessaria.
+    // funziona, ma ha un limite:
+    // guarda solo l'input iniziale e NON considera i turni successivi
+    // (da usare insieme a requiresToolFromContext per robustezza )
+    function requiresTool(userInputcheck: string): boolean {
+      console.log("userInputcheck here =", userInputcheck);
+      // add includes('text') in base a questo log
+      // returns true or false
+      return (
+        userInputcheck.includes("file") || userInputcheck.includes("scrivi")
+      ); // aggiungi le altre includes
+      // in correlazioni con le altre tools
+    }
+    console.log("requiresTool check", requiresTool);
+
+    // QUI:
+    // ✔ Si usa il reasoning del modello(il thinking) insieme userInput per controllare gli action di questi e controllare se
+    // una tool deve essere invocata(hard coded tool invoking)
+    // ✔ funziona multi-turn. (da usare con requiresTool per robustezza)
+
+    // "Posso creare un file se vuoi" porta ad error
+    function requiresToolFromContext(response: any): boolean {
+      const text = response.output_text?.toLowerCase() || ""; // la res del modello (il thinking)
+      console.log("response.output_text? here =", text);
+      // add includes('text') in base a questo log
+
+      return text.includes("creating") || text.includes("writing file");
+    }
+    console.log("requiresToolFromContext check", requiresToolFromContext);
+
+    // const ShouldUseTool = requiresToolFromContext(response); // la res dello llm (il thinking)
+    // console.log(mustUseTool); (return True/False)
+
+    // QUI:
+    //  verifichiamo se una funzione e' effettivamente richiesta ma non invocata.
+    // In base a questo facciamo il recall della tool 3 volte(sotto)
+    const mustUseTool = // return True or False
+      !toolCall &&
+      (requiresTool(userInput) || requiresToolFromContext(response)); // questo funge da doppia validazione
+
+    console.log("mustUseTool check", mustUseTool);
+    // Non esiste soluzione perfetta.
+    // Per questo in produzione si usa:
+
+    // 1) intent detection (input)
+    // 2) LLM reasoning (context)
+    // 3) fallback retry
+
+    // 👉 esattamente come abbiamo fatto qui
+
+    // QUI:
+    // if (!toolCall am if mustUseTool) → retry to call the missed tool for 3 times:
     if (!toolCall || toolCall.type !== "function_call") {
-      // Qui facciamo "Enforce nel loop". Se nell'output_text del modello compare la parola "creo" o "writing"
-      // probabilmente significa che il modello sta' allucinando, cioe' "pianifica a parole" di fare un azione
-      // senza chiamare una tool per eseguirla. Enforcement come guard layer e EnvManager sono tutte tecniche usate in production
-      // dalle grandi aziende
-      if (
-        // Tuttavia il metodo string includes sotto e fragile, ed e' solo per debug (da eliminare in prod)
-        response.output_text?.includes("creo") ||
-        response.output_text?.includes("creare un file") ||
-        response.output_text?.includes("procederò") ||
-        response.output_text?.includes("procedo") ||
-        response.output_text?.includes("scrivere un file") ||
-        response.output_text?.includes("writing")
-      ) {
-        console.log("⚠️ Detected fake execution", response.output_text);
-        // Se questo succede, qui invitiamo il modello a invocare la task
+      if (mustUseTool) {
+        console.log("⚠️ Model failed to call tool properly");
+
+        // Evita loop infinito
+        if (retryCount > MAX_RETRIES) {
+          console.log("⚠️ To many failed attempts, please try again");
+          return "❌ Failed to execute tool after multiple attempts.";
+        }
+
+        retryCount++;
+
         response = await openai.responses.create({
           model: "gpt-4.1",
           previous_response_id: response.id,
           input: [
             {
               role: "developer",
-              content: `You failed to call a required tool.
-                        You must call a tool to complete the task.
-                        Do not respond with text.`,
+              content: `
+            You must call a tool using the function_call format.
+            Do not write tool calls as text.
+            Do not simulate tool execution.
+            Only respond with a valid function_call.`,
             },
           ],
         });
 
         continue;
       }
-      // cosi' ts sa' che e' una openAi function_call
-      // e non lancia error sotto nel name(toolCall.name)
+      // Risposta ad una domanda normale tipo 'come stai chat', o quando l'ultima tool della task e' stata eseguita
       console.log("Final response:", response.output_text);
       return response.output_text; // output_text e inbuild sintaxt di OpenAi che ritorna la res del model
     }
