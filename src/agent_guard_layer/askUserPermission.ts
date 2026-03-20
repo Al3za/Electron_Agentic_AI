@@ -1,4 +1,5 @@
-import { dialog } from "electron"; // inbuild function di eectron
+import { dialog } from "electron"; // inbuild function di elctron. Fa in modo che nella UI compaia 'allow' o 'deny'
+// quando facciamo un opreazione sensibile, ad esempio quando il modello deve accendere wifi
 
 export async function askUserPermission(message: string) {
   const result = await dialog.showMessageBox({

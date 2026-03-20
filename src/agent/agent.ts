@@ -106,6 +106,9 @@ export async function runAgent(userInput: string) {
   let retryCount = 0;
   const MAX_RETRIES = 3;
 
+  // per tenere sato delle tool gia' eseguite
+  let toolExecuted = false;
+
   // IN QUESTO WHILE PARTE IL 'MULTI AGENT AI':
   // questo while resta true per tutta la durata del modello che invoca nuove tool, rendendolo ideale per il multi agent
   // quando il modello ha chiamato l'ultima tool della chain e deve dare la res finale, ovvero
@@ -148,15 +151,24 @@ export async function runAgent(userInput: string) {
     // guarda solo l'input iniziale e NON considera i turni successivi
     // (da usare insieme a requiresToolFromContext per robustezza )
     function requiresTool(userInputcheck: string): boolean {
-      console.log("userInputcheck here =", userInputcheck);
+      const text = userInputcheck.toLowerCase();
+      console.log("userInputcheck here =", text);
       // add includes('text') in base a questo log
       // returns true or false
+      console.log(
+        "userInputcheck return",
+        userInputcheck.includes("file") || userInputcheck.includes("scrivi"),
+      );
+      //return = True or false
+      // aggiungi le altre includes in correlazioni con le altre tools(tippo wifi ecc)
       return (
-        userInputcheck.includes("file") || userInputcheck.includes("scrivi")
-      ); // aggiungi le altre includes
-      // in correlazioni con le altre tools
+        text.includes("file") ||
+        text.includes("scrivi") ||
+        text.includes("write") ||
+        text.includes("create")
+      );
     }
-    console.log("requiresTool check", requiresTool);
+    // console.log("requiresTool check", requiresTool(userInput));
 
     // QUI:
     // ✔ Si usa il reasoning del modello(il thinking) insieme userInput per controllare gli action di questi e controllare se
@@ -169,19 +181,37 @@ export async function runAgent(userInput: string) {
       console.log("response.output_text? here =", text);
       // add includes('text') in base a questo log
 
-      return text.includes("creating") || text.includes("writing file");
+      console.log(
+        "requiresToolFromContext return",
+        text.includes("creating") || text.includes("writing file"),
+      );
+
+      return (
+        text.includes("creating") || text.includes("writing file")
+        // text.includes("checking")
+      );
+      // return text.includes("creating") || text.includes("writing file"); // return True or false
     }
-    console.log("requiresToolFromContext check", requiresToolFromContext);
+    // console.log(
+    //   "requiresToolFromContext check",
+    //   requiresToolFromContext(response),
+    // );
 
     // const ShouldUseTool = requiresToolFromContext(response); // la res dello llm (il thinking)
     // console.log(mustUseTool); (return True/False)
 
     // QUI:
     //  verifichiamo se una funzione e' effettivamente richiesta ma non invocata.
-    // In base a questo facciamo il recall della tool 3 volte(sotto)
-    const mustUseTool = // return True or False
+    // In base a questo facciamo il recall della tool 3 volte(sotto).
+    // Se !toolCall, ma requiresTool(userInput) o requiresToolFromContext(response) significa che probabilmente il
+    // modello dovrebbe invocare una tool ma non lo fa', quindi partiamo riproviamo ad invocare la tool
+    // per un massimo di 3 volte(retryCount > MAX_RETRIES)
+    const mustUseTool = // return True or False. (ciao chat userInput return false, create a file.txt creturn true)
       !toolCall &&
+      !toolExecuted && // verifica se una tool nen e gia stata eseguita
       (requiresTool(userInput) || requiresToolFromContext(response)); // questo funge da doppia validazione
+    // se anche 1 di queste sopra e' true, allora mustUseTool = True. Devono essere tutte false, cosi sappiamo
+    // che il modello non ha mancato una tool call
 
     console.log("mustUseTool check", mustUseTool);
     // Non esiste soluzione perfetta.
@@ -241,11 +271,13 @@ export async function runAgent(userInput: string) {
     } else {
       try {
         result = await executeTool(toolCall); // invochiamo le tool della tool chain
+        toolExecuted = true; // qui' sappiamo se una tool e' stata gia' compiuta
         // 🔥 importante: aggiorna stato dopo tool critiche
         if (["enable_wifi", "connect_wifi"].includes(toolCall.name)) {
           env.invalidateCache();
         }
       } catch (err) {
+        toolExecuted = false;
         result = {
           success: false,
           error: "Tool execution failed",
@@ -415,3 +447,5 @@ export async function runAgent(userInput: string) {
 // agent loop custom
 
 // esattamente come stai facendo tu.
+
+// next step = Tool Validator Middleware

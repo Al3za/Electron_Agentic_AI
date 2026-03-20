@@ -30,19 +30,7 @@ export async function guardToolExecution(
     };
   }
 
-  // 🌐 check internet if a tool require it (os operation tools usually dont need it)
-  // if (policy.requiresInternet) {
-  //   console.log("policy check internet here,", policy, policy.requiresInternet);
-  //   const hasNet = await hasInternet();
-  //   if (!hasNet) {
-  //     return {
-  //       success: false,
-  //       error: "No internet connection",
-  //     };
-  //   }
-  // }
-
-  // 🔐 permission check (Os tools often requires this check)
+  // 🔐 permission check (OS tools often requires this check)
   if (policy?.requiresPermission) {
     const allowed = await askUserPermission(
       `Agent wants to execute ${toolCall.name}. Allow?`,
